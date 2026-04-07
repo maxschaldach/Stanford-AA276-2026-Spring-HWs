@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Gradescope autograder entry point.
+# Called once per submission. Must write /autograder/results/results.json.
+
+set -e
+
+cd /autograder/source
+python3 grade.py
