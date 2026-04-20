@@ -175,7 +175,7 @@ def u_nominal(x, t):
     elif t < 3:
         return 3.0
     else:
-        return 2.0 * (-10*np.sin(x[0]) - np.array([1.5,1.5]) @ x)
+        return np.clip(2.0 * (-10*np.sin(x[0]) - np.array([1.5,1.5]) @ x), -3.0, 3.0)
 
 # ===== CBF-QP =====
 def cbf_qp(x, t, h_func, grad_func):
@@ -197,7 +197,7 @@ def cbf_qp(x, t, h_func, grad_func):
                    bounds=[(-3, 3)],
                    constraints={'type': 'ineq', 'fun': constraint})
 
-    return res.x[0] if res.success else u_ref
+    return np.clip(res.x[0], -3, 3) if res.success else np.clip(u_ref, -3, 3)
 
 def h_old_np(x):
     return h_old(torch.tensor(x).unsqueeze(0))[0].item()
