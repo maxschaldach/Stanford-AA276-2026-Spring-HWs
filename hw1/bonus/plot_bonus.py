@@ -12,6 +12,86 @@ from pendulum_system import h_old
 
 _OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'outputs')
 
+# ===== PATCH: recreate class for checkpoint loading =====
+from neural_clbf.systems import ControlAffineSystem
+import torch
+
+m = 2.0
+l = 1.0
+g_const = 10.0
+
+class PendulumSystem(ControlAffineSystem):
+    def __init__(self, nominal_params):
+        super().__init__(nominal_params)
+
+    @property
+    def n_dims(self):
+        return 2
+
+    @property
+    def n_controls(self):
+        return 1
+
+    @property
+    def angle_dims(self):
+        return []
+
+    def validate_params(self, params):
+        return True
+
+    def compute_linearized_controller(self, scenarios):
+        return
+
+    def _f(self, x, params=None):
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
+
+        out = torch.zeros((x.shape[0], 2, 1), device=x.device)
+        out[:, 0, 0] = theta_dot
+        out[:, 1, 0] = (g_const / l) * torch.sin(theta)
+        return out
+
+    def _g(self, x, params=None):
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+
+        B = x.shape[0]
+        G = torch.zeros((B, 2, 1), device=x.device)
+        G[:, 1, 0] = 1 / (m * l**2)
+        return G
+
+    @property
+    def state_limits(self):
+        return torch.tensor([0.4, 2.0]), torch.tensor([-0.4, -2.0])
+
+    @property
+    def control_limits(self):
+        return torch.tensor([3.0]), torch.tensor([-3.0])
+
+    def safe_mask(self, x):
+        return torch.abs(x[:, 0]) <= 0.3
+
+    def unsafe_mask(self, x):
+        return torch.abs(x[:, 0]) > 0.3
+
+    def u_nominal(self, x):
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
+
+        u = m * l**2 * (
+            -(g_const / l) * torch.sin(theta)
+            - 1.5 * theta
+            - 1.5 * theta_dot
+        )
+
+        return torch.clamp(u, -3.0, 3.0).unsqueeze(1)
+
 # ===== LOAD MODEL =====
 ckptpath = os.path.join(_OUTPUTS_DIR, 'cbf_bonus.ckpt')
 neural_controller = NeuralCBFController.load_from_checkpoint(ckptpath)
