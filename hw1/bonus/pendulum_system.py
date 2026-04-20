@@ -29,16 +29,16 @@ def failure_mask(x):
 
 # ===== DYNAMICS =====
 def f(x):
-    # ensure batch dimension
     if x.ndim == 1:
         x = x.unsqueeze(0)
 
     theta = x[:, 0]
     theta_dot = x[:, 1]
 
-    out = torch.zeros_like(x)
-    out[:, 0] = theta_dot
-    out[:, 1] = (g_const / l) * torch.sin(theta)
+    out = torch.zeros((x.shape[0], 2, 1), device=x.device)
+
+    out[:, 0, 0] = theta_dot
+    out[:, 1, 0] = (g_const / l) * torch.sin(theta)
 
     return out
 
