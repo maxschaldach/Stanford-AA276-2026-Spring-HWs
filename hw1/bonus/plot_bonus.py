@@ -14,7 +14,6 @@ _OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'o
 
 # ===== PATCH: recreate class for checkpoint loading =====
 from neural_clbf.systems import ControlAffineSystem
-import torch
 
 m = 2.0
 l = 1.0
@@ -114,7 +113,7 @@ def grad_h_old(x):
 theta = torch.linspace(-0.4, 0.4, 200)
 thetadot = torch.linspace(-2, 2, 200)
 
-TH, TD = torch.meshgrid(theta, thetadot)
+TH, TD = torch.meshgrid(theta, thetadot)  # compatible with older PyTorch
 
 X = torch.stack([
     TH.reshape(-1),
@@ -124,15 +123,14 @@ X = torch.stack([
 h_old_vals = h_old(X).reshape(TH.shape)
 h_new_vals = h_new(X).reshape(TH.shape).detach()
 
-# ===== CBF COMPARISON PLOT =====
+# ===== CBF COMPARISON =====
 fig, ax = plt.subplots()
 ax.set_title('Analytical vs Refined CBF')
 ax.set_xlabel(r'$\theta$')
 ax.set_ylabel(r'$\dot{\theta}$')
 
-# contours
-c1 = ax.contour(TH, TD, h_old_vals, levels=[0], colors='blue')
-c2 = ax.contour(TH, TD, h_new_vals, levels=[0], colors='red')
+ax.contour(TH, TD, h_old_vals, levels=[0], colors='blue')
+ax.contour(TH, TD, h_new_vals, levels=[0], colors='red')
 
 # failure set
 ax.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.15)
@@ -140,15 +138,23 @@ ax.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.15)
 
 ax.legend(['Old CBF', 'Refined CBF'])
 
-# ===== VOLUME IMPROVEMENT =====
+# ===== VOLUME METRIC =====
 old_area = (h_old_vals >= 0).float().mean()
 new_area = (h_new_vals >= 0).float().mean()
 improvement = (new_area - old_area) / old_area * 100
 
 print(f'Volume improvement (%): {improvement.item():.2f}')
+print(f'Old safe fraction: {old_area.item():.4f}')
+print(f'New safe fraction: {new_area.item():.4f}')
 
-plt.savefig(os.path.join(_OUTPUTS_DIR, 'plot_bonus.png'))
+if new_area > 0.8:
+    print("WARNING: Learned CBF likely too permissive.")
+
+# ===== SAVE CBF PLOT =====
+plot_path = os.path.join(_OUTPUTS_DIR, 'plot_bonus.png')
+plt.savefig(plot_path)
 plt.close()
+print(f"Saved CBF plot to: {plot_path}")
 
 # ===== DYNAMICS =====
 def f_np(x):
@@ -169,74 +175,54 @@ def u_nominal(x, t):
     elif t < 3:
         return 3.0
     else:
-        return 2.0 * (
-            -10 * np.sin(x[0]) - np.array([1.5,1.5]) @ x
-        )
+        return 2.0 * (-10*np.sin(x[0]) - np.array([1.5,1.5]) @ x)
 
-# ===== CBF-QP (NEURAL) =====
-def cbf_qp_neural(x, t):
+# ===== CBF-QP =====
+def cbf_qp(x, t, h_func, grad_func):
+    h_val = h_func(x)
+    dh = grad_func(x)
+
+    Lf = dh @ f_np(x)
+    Lg = dh @ g_np()
+
+    u_ref = u_nominal(x, t)
+
+    def objective(u):
+        return (u[0] - u_ref)**2
+
+    def constraint(u):
+        return Lf + Lg*u[0] + h_val
+
+    res = minimize(objective, [u_ref],
+                   bounds=[(-3, 3)],
+                   constraints={'type': 'ineq', 'fun': constraint})
+
+    return res.x[0] if res.success else u_ref
+
+def h_old_np(x):
+    return h_old(torch.tensor(x).unsqueeze(0))[0].item()
+
+def grad_new_np(x):
     xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
+    return dhdx_new(xt)[0].detach().numpy()
 
-    h_val = h_new(xt)[0].item()
-    dh = dhdx_new(xt)[0].detach().numpy()
-
-    Lf = dh @ f_np(x)
-    Lg = dh @ g_np()
-
-    u_ref = u_nominal(x, t)
-
-    def objective(u):
-        return (u[0] - u_ref)**2
-
-    gamma = 1.0
-    def constraint(u):
-        return Lf + Lg*u[0] + gamma * h_val
-
-    res = minimize(objective, [u_ref],
-                   bounds=[(-3, 3)],
-                   constraints={'type': 'ineq', 'fun': constraint})
-
-    return res.x[0] if res.success else u_ref
-
-# ===== CBF-QP (OLD) =====
-def cbf_qp_old(x, t):
-    h_val = h_old(torch.tensor(x).unsqueeze(0))[0].item()
-    dh = grad_h_old(x)
-
-    Lf = dh @ f_np(x)
-    Lg = dh @ g_np()
-
-    u_ref = u_nominal(x, t)
-
-    def objective(u):
-        return (u[0] - u_ref)**2
-
-    gamma = 1.0
-    def constraint(u):
-        return Lf + Lg*u[0] + gamma * h_val
-
-    res = minimize(objective, [u_ref],
-                   bounds=[(-3, 3)],
-                   constraints={'type': 'ineq', 'fun': constraint})
-
-    return res.x[0] if res.success else u_ref
+def h_new_np(x):
+    xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
+    return h_new(xt)[0].item()
 
 # ===== SIMULATION =====
-def simulate(x0, controller):
+def simulate(x0, h_func, grad_func):
     x = np.array(x0)
-    traj = [x.copy()]
-    u_hist = []
-    t_hist = []
-
+    traj, u_hist, t_hist = [x.copy()], [], []
     t = 0
+
     while t < 5:
-        u = controller(x, t)
+        u = cbf_qp(x, t, h_func, grad_func)
         x = step(x, u)
 
         traj.append(x.copy())
         u_hist.append(u)
         t_hist.append(t)
-
         t += 0.01
 
     return np.array(traj), np.array(u_hist), np.array(t_hist)
@@ -244,45 +230,44 @@ def simulate(x0, controller):
 # ===== RUN =====
 x0s = [(0,0), (0.05,0.05)]
 
-results_new = [simulate(x0, cbf_qp_neural) for x0 in x0s]
-results_old = [simulate(x0, cbf_qp_old) for x0 in x0s]
+results_old = [simulate(x0, h_old_np, grad_h_old) for x0 in x0s]
+results_new = [simulate(x0, h_new_np, grad_new_np) for x0 in x0s]
 
-# ===== TRAJECTORY PLOT =====
+# ===== TRAJECTORIES =====
 plt.figure()
-
 for i, (traj, _, _) in enumerate(results_old):
     plt.plot(traj[:,0], traj[:,1], '--', label=f"old x0={x0s[i]}")
-
 for i, (traj, _, _) in enumerate(results_new):
     plt.plot(traj[:,0], traj[:,1], label=f"new x0={x0s[i]}")
 
-# failure set
-plt.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.15)
-plt.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.15)
+plt.fill_betweenx([-2,2], 0.3, 0.4, color='red', alpha=0.15)
+plt.fill_betweenx([-2,2], -0.4, -0.3, color='red', alpha=0.15)
 
 plt.xlabel("theta")
 plt.ylabel("theta_dot")
-plt.title("CBF-QP trajectories (old vs refined)")
+plt.title("CBF-QP trajectories")
 plt.legend()
-plt.grid(True)
+plt.grid()
 
-plt.savefig(os.path.join(_OUTPUTS_DIR, 'traj_bonus.png'))
+traj_path = os.path.join(_OUTPUTS_DIR, 'traj_bonus.png')
+plt.savefig(traj_path)
 plt.close()
+print(f"Saved trajectories to: {traj_path}")
 
-# ===== CONTROL PLOT =====
+# ===== CONTROLS =====
 plt.figure()
-
 for i, (_, u_hist, t_hist) in enumerate(results_old):
     plt.plot(t_hist, u_hist, '--', label=f"old x0={x0s[i]}")
-
 for i, (_, u_hist, t_hist) in enumerate(results_new):
     plt.plot(t_hist, u_hist, label=f"new x0={x0s[i]}")
 
 plt.xlabel("Time")
 plt.ylabel("u(t)")
-plt.title("Control inputs (old vs refined)")
+plt.title("Control inputs")
 plt.legend()
-plt.grid(True)
+plt.grid()
 
-plt.savefig(os.path.join(_OUTPUTS_DIR, 'control_bonus.png'))
+control_path = os.path.join(_OUTPUTS_DIR, 'control_bonus.png')
+plt.savefig(control_path)
 plt.close()
+print(f"Saved controls to: {control_path}")
