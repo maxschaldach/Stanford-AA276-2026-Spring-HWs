@@ -16,8 +16,19 @@ _OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'o
 ckptpath = os.path.join(_OUTPUTS_DIR, 'cbf_bonus.ckpt')
 neural_controller = NeuralCBFController.load_from_checkpoint(ckptpath)
 
-h_fn = lambda x: -neural_controller.V_with_jacobian(x)[0]
-dhdx_fn = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
+h_new = lambda x: -neural_controller.V_with_jacobian(x)[0]
+dhdx_new = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
+
+# ===== ANALYTICAL GRADIENT =====
+a = 0.14
+b = np.sqrt(a * (3 - 20*np.sin(a)) / 2)
+
+def grad_h_old(x):
+    theta, theta_dot = x
+    return np.array([
+        -2*theta/(a**2),
+        -2*theta_dot/(b**2)
+    ])
 
 # ===== GRID =====
 theta = torch.linspace(-0.4, 0.4, 200)
@@ -31,30 +42,35 @@ X = torch.stack([
 ], dim=1)
 
 h_old_vals = h_old(X).reshape(TH.shape)
-h_new_vals = h_fn(X).reshape(TH.shape).detach()
+h_new_vals = h_new(X).reshape(TH.shape).detach()
 
-# ===== PLOT CBF =====
+# ===== CBF COMPARISON PLOT =====
 fig, ax = plt.subplots()
 ax.set_title('Analytical vs Refined CBF')
 ax.set_xlabel(r'$\theta$')
 ax.set_ylabel(r'$\dot{\theta}$')
 
-ax.contour(TH, TD, h_old_vals, levels=[0], colors='blue')
-ax.contour(TH, TD, h_new_vals, levels=[0], colors='red')
+# contours
+c1 = ax.contour(TH, TD, h_old_vals, levels=[0], colors='blue')
+c2 = ax.contour(TH, TD, h_new_vals, levels=[0], colors='red')
+
+# failure set
+ax.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.15)
+ax.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.15)
+
 ax.legend(['Old CBF', 'Refined CBF'])
 
-# ===== VOLUME =====
+# ===== VOLUME IMPROVEMENT =====
 old_area = (h_old_vals >= 0).float().mean()
 new_area = (h_new_vals >= 0).float().mean()
 improvement = (new_area - old_area) / old_area * 100
 
 print(f'Volume improvement (%): {improvement.item():.2f}')
 
-# ===== SAVE =====
 plt.savefig(os.path.join(_OUTPUTS_DIR, 'plot_bonus.png'))
 plt.close()
 
-# ===== DYNAMICS (numpy for simulation) =====
+# ===== DYNAMICS =====
 def f_np(x):
     return np.array([x[1], 10*np.sin(x[0])])
 
@@ -64,31 +80,69 @@ def g_np():
 def step(x, u, dt=0.01):
     return x + (f_np(x) + g_np()*u)*dt
 
-# ===== NEURAL CBF-QP =====
-def cbf_qp_neural(x):
+# ===== TRUE NOMINAL CONTROLLER =====
+def u_nominal(x, t):
+    if t < 1:
+        return 3.0
+    elif t < 2:
+        return -3.0
+    elif t < 3:
+        return 3.0
+    else:
+        return 2.0 * (
+            -10 * np.sin(x[0]) - np.array([1.5,1.5]) @ x
+        )
+
+# ===== CBF-QP (NEURAL) =====
+def cbf_qp_neural(x, t):
     xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
 
-    h_val = h_fn(xt)[0].item()
-    dh = dhdx_fn(xt)[0].detach().numpy()
+    h_val = h_new(xt)[0].item()
+    dh = dhdx_new(xt)[0].detach().numpy()
 
     Lf = dh @ f_np(x)
     Lg = dh @ g_np()
 
+    u_ref = u_nominal(x, t)
+
     def objective(u):
-        return (u[0])**2
+        return (u[0] - u_ref)**2
 
     gamma = 1.0
     def constraint(u):
         return Lf + Lg*u[0] + gamma * h_val
 
-    res = minimize(objective, [0.0],
+    res = minimize(objective, [u_ref],
                    bounds=[(-3, 3)],
                    constraints={'type': 'ineq', 'fun': constraint})
 
-    return res.x[0] if res.success else 0.0
+    return res.x[0] if res.success else u_ref
+
+# ===== CBF-QP (OLD) =====
+def cbf_qp_old(x, t):
+    h_val = h_old(torch.tensor(x).unsqueeze(0))[0].item()
+    dh = grad_h_old(x)
+
+    Lf = dh @ f_np(x)
+    Lg = dh @ g_np()
+
+    u_ref = u_nominal(x, t)
+
+    def objective(u):
+        return (u[0] - u_ref)**2
+
+    gamma = 1.0
+    def constraint(u):
+        return Lf + Lg*u[0] + gamma * h_val
+
+    res = minimize(objective, [u_ref],
+                   bounds=[(-3, 3)],
+                   constraints={'type': 'ineq', 'fun': constraint})
+
+    return res.x[0] if res.success else u_ref
 
 # ===== SIMULATION =====
-def simulate(x0):
+def simulate(x0, controller):
     x = np.array(x0)
     traj = [x.copy()]
     u_hist = []
@@ -96,7 +150,7 @@ def simulate(x0):
 
     t = 0
     while t < 5:
-        u = cbf_qp_neural(x)
+        u = controller(x, t)
         x = step(x, u)
 
         traj.append(x.copy())
@@ -109,30 +163,46 @@ def simulate(x0):
 
 # ===== RUN =====
 x0s = [(0,0), (0.05,0.05)]
-results = [simulate(x0) for x0 in x0s]
+
+results_new = [simulate(x0, cbf_qp_neural) for x0 in x0s]
+results_old = [simulate(x0, cbf_qp_old) for x0 in x0s]
 
 # ===== TRAJECTORY PLOT =====
 plt.figure()
-for i, (traj, _, _) in enumerate(results):
-    plt.plot(traj[:,0], traj[:,1], label=f"x0={x0s[i]}")
+
+for i, (traj, _, _) in enumerate(results_old):
+    plt.plot(traj[:,0], traj[:,1], '--', label=f"old x0={x0s[i]}")
+
+for i, (traj, _, _) in enumerate(results_new):
+    plt.plot(traj[:,0], traj[:,1], label=f"new x0={x0s[i]}")
+
+# failure set
+plt.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.15)
+plt.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.15)
 
 plt.xlabel("theta")
 plt.ylabel("theta_dot")
-plt.title("Neural CBF-QP trajectories")
+plt.title("CBF-QP trajectories (old vs refined)")
 plt.legend()
 plt.grid(True)
+
 plt.savefig(os.path.join(_OUTPUTS_DIR, 'traj_bonus.png'))
 plt.close()
 
 # ===== CONTROL PLOT =====
 plt.figure()
-for i, (_, u_hist, t_hist) in enumerate(results):
-    plt.plot(t_hist, u_hist, label=f"x0={x0s[i]}")
+
+for i, (_, u_hist, t_hist) in enumerate(results_old):
+    plt.plot(t_hist, u_hist, '--', label=f"old x0={x0s[i]}")
+
+for i, (_, u_hist, t_hist) in enumerate(results_new):
+    plt.plot(t_hist, u_hist, label=f"new x0={x0s[i]}")
 
 plt.xlabel("Time")
 plt.ylabel("u(t)")
-plt.title("Control inputs")
+plt.title("Control inputs (old vs refined)")
 plt.legend()
 plt.grid(True)
+
 plt.savefig(os.path.join(_OUTPUTS_DIR, 'control_bonus.png'))
 plt.close()
