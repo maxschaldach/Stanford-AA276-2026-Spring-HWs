@@ -41,7 +41,22 @@ from neural_clbf.systems import ControlAffineSystem
 
 class PendulumSystem(ControlAffineSystem):
     def __init__(self):
-        super().__init__(2, 1)
+        super().__init__()
+
+    @property
+    def n_dims(self):
+        return 2
+
+    @property
+    def n_controls(self):
+        return 1
+
+    @property
+    def angle_dims(self):
+        return []  # no angle wrapping needed
+
+    def validate_params(self, params):
+        return True
 
     def _f(self, x, params=None):
         return f(x)
