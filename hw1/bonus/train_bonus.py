@@ -82,6 +82,24 @@ class PendulumSystem(ControlAffineSystem):
 
     def unsafe_mask(self, x):
         return failure_mask(x)
+    
+    def u_nominal(self, x):
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
+
+        u = m * l**2 * (
+            -(g_const / l) * torch.sin(theta)
+            - 1.5 * theta
+            - 1.5 * theta_dot
+        )
+
+        # respect limits
+        u = torch.clamp(u, -3.0, 3.0)
+
+        return u.unsqueeze(1)
 
 # ===== FIXED INSTANTIATION =====
 dynamics_model = PendulumSystem(nominal_params)
