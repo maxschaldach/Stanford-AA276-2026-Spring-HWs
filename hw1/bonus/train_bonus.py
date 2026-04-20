@@ -69,9 +69,11 @@ class PendulumSystem(ControlAffineSystem):
     def _g(self, x, params=None):
         return g(x)
 
+    @property
     def state_limits(self):
         return state_limits()
 
+    @property
     def control_limits(self):
         return control_limits()
 
