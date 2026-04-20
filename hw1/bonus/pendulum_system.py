@@ -29,19 +29,31 @@ def failure_mask(x):
 
 # ===== DYNAMICS =====
 def f(x):
-    theta = x[:, 0]
-    theta_dot = x[:, 1]
+    if x.ndim == 1:
+        theta, theta_dot = x
+        return torch.tensor([
+            theta_dot,
+            (g_const / l) * torch.sin(theta)
+        ])
+    else:
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
 
-    out = torch.zeros_like(x)
-    out[:, 0] = theta_dot
-    out[:, 1] = (g_const / l) * torch.sin(theta)
-    return out
+        out = torch.zeros_like(x)
+        out[:, 0] = theta_dot
+        out[:, 1] = (g_const / l) * torch.sin(theta)
+        return out
 
 def g(x):
-    B = x.shape[0]
-    G = torch.zeros((B, 2, 1))
-    G[:, 1, 0] = 1 / (m * l**2)
-    return G
+    if x.ndim == 1:
+        G = torch.zeros((2, 1))
+        G[1, 0] = 1 / (m * l**2)
+        return G
+    else:
+        B = x.shape[0]
+        G = torch.zeros((B, 2, 1))
+        G[:, 1, 0] = 1 / (m * l**2)
+        return G
 
 # ===== ANALYTICAL CBF =====
 a = 0.14
