@@ -39,9 +39,10 @@ from pendulum_system import (
 
 from neural_clbf.systems import ControlAffineSystem
 
+# ===== FIXED SYSTEM CLASS =====
 class PendulumSystem(ControlAffineSystem):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, nominal_params):
+        super().__init__(nominal_params)
 
     @property
     def n_dims(self):
@@ -53,7 +54,7 @@ class PendulumSystem(ControlAffineSystem):
 
     @property
     def angle_dims(self):
-        return []  # no angle wrapping needed
+        return []
 
     def validate_params(self, params):
         return True
@@ -76,7 +77,8 @@ class PendulumSystem(ControlAffineSystem):
     def unsafe_mask(self, x):
         return failure_mask(x)
 
-dynamics_model = PendulumSystem()
+# ===== FIXED INSTANTIATION =====
+dynamics_model = PendulumSystem(nominal_params)
 
 # ===== DATA =====
 initial_conditions = [
