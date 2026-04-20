@@ -11,6 +11,11 @@ from neural_clbf.experiments import ExperimentSuite
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+# CONSTANTS
+m = 2.0
+l = 1.0
+g_const = 10.0
+
 controller_period = 0.05
 simulation_dt = 0.01
 
