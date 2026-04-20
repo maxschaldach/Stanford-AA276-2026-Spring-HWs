@@ -114,7 +114,7 @@ def grad_h_old(x):
 theta = torch.linspace(-0.4, 0.4, 200)
 thetadot = torch.linspace(-2, 2, 200)
 
-TH, TD = torch.meshgrid(theta, thetadot, indexing='ij')
+TH, TD = torch.meshgrid(theta, thetadot)
 
 X = torch.stack([
     TH.reshape(-1),
