@@ -41,8 +41,14 @@ def euler_step(x, u, dt):
     returns:
         xn: torch float32 tensor with shape [batch_size, 13]
     """
-    # YOUR CODE HERE
-    pass
+    fx = f(x)                      # [B, 13]
+    gx = g(x)                      # [B, 13, 4]
+
+    # batch matrix multiply: g(x)u
+    gu = torch.bmm(gx, u.unsqueeze(-1)).squeeze(-1)  # [B, 13]
+
+    xn = x + dt * (fx + gu)
+    return xn
 
     
 def roll_out(x0, u_fn, nt, dt):
@@ -64,8 +70,16 @@ def roll_out(x0, u_fn, nt, dt):
     returns:
         xts: torch float32 tensor with shape [batch_size, nt, 13]
     """
-    # YOUR CODE HERE
-    pass
+    xs = []
+    x = x0
+
+    for _ in range(nt):
+        u = u_fn(x)                # [B, 4]
+        x = euler_step(x, u, dt)   # [B, 13]
+        xs.append(x)
+
+    xts = torch.stack(xs, dim=1)   # [B, nt, 13]
+    return xts
 
 
 import cvxpy as cp
@@ -94,5 +108,52 @@ def u_qp(x, h, dhdx, u_ref, gamma, lmbda):
     returns:
         u_qp: torch float32 tensor with shape [batch_size, 4]
     """
-    # YOUR CODE HERE
-    pass
+    B = x.shape[0]
+
+    u_out = []
+
+    # control limits
+    u_upper, u_lower = control_limits()
+    u_upper = u_upper.numpy()
+    u_lower = u_lower.numpy()
+
+    for i in range(B):
+        xi = x[i].unsqueeze(0)  # keep batch dim
+
+        # compute dynamics
+        fi = f(xi)[0].detach().cpu().numpy()              # [13]
+        gi = g(xi)[0].detach().cpu().numpy()              # [13, 4]
+
+        grad_h = dhdx[i].detach().cpu().numpy()           # [13]
+        hi = h[i].item()
+        uref = u_ref[i].detach().cpu().numpy()
+
+        # Lie derivatives
+        Lf_h = grad_h @ fi                                # scalar
+        Lg_h = grad_h @ gi                                # [4]
+
+        # decision variables
+        u = cp.Variable(4)
+        delta = cp.Variable()
+
+        # objective
+        objective = cp.Minimize(cp.sum_squares(u - uref) + lmbda * cp.square(delta))
+
+        # constraints
+        constraints = [
+            Lg_h @ u + delta >= -Lf_h - gamma * hi,
+            u >= u_lower,
+            u <= u_upper,
+            delta >= 0
+        ]
+
+        prob = cp.Problem(objective, constraints)
+        prob.solve(solver=cp.OSQP)
+
+        # fallback (rare but safe)
+        if u.value is None:
+            u_out.append(uref)
+        else:
+            u_out.append(u.value)
+
+    return torch.tensor(u_out, dtype=torch.float32)

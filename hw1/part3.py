@@ -58,8 +58,17 @@ def plot_h(fig, ax, px, py, slice, h_fn):
     # you should plot h_fn(X) (reshape X as needed to be compatible with h_fn)
     # you might want to use ax.pcolormesh(.), fig.colorbar(.), and ax.contour(.)
 
-    # YOUR CODE HERE
-    pass
+    # reshape to batch
+    X_flat = X.reshape(-1, 13)
+
+    h_vals = h_fn(X_flat).reshape(len(px), len(py)).detach().cpu()
+
+    # colormap
+    c = ax.pcolormesh(px, py, h_vals.T, shading='auto')
+    fig.colorbar(c, ax=ax)
+
+    # zero level set (decision boundary)
+    ax.contour(px, py, h_vals.T, levels=[0], colors='black')
 
 
 from part1 import safe_mask, failure_mask
@@ -106,5 +115,37 @@ def plot_and_eval_xts(fig, ax, x0, u_ref_fn, h_fn, dhdx_fn, gamma, lmbda, nt, dt
         return u_qp(x, h_fn(x), dhdx_fn(x), u_ref_fn(x), gamma, lmbda)
     # first, you should compute state trajectories xts using roll_out(.)
 
-    # YOUR CODE HERE
-    pass
+    # rollout
+    xts = roll_out(x0, u_fn, nt, dt)   # [B, nt, 13]
+
+    B = x0.shape[0]
+
+    # ---- plot trajectories ----
+    xts_np = xts.detach().cpu()
+
+    for i in range(B):
+        px = xts_np[i, :, 0]
+        py = xts_np[i, :, 1]
+        ax.plot(px, py)
+
+    # ---- compute false safety rate ----
+
+    # initial safe states
+    is_safe0 = safe_mask(x0)   # [B]
+
+    # check if trajectory ever enters failure set
+    xts_flat = xts.reshape(-1, 13)
+    failure = failure_mask(xts_flat).reshape(B, nt)
+
+    # any failure along trajectory
+    violated = failure.any(dim=1)   # [B]
+
+    # false safety: initially safe but violated later
+    false_safe = is_safe0 & violated
+
+    if is_safe0.sum() == 0:
+        false_safety_rate = 0.0
+    else:
+        false_safety_rate = false_safe.sum().item() / is_safe0.sum().item()
+
+    return false_safety_rate
