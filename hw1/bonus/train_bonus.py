@@ -59,6 +59,10 @@ class PendulumSystem(ControlAffineSystem):
     def validate_params(self, params):
         return True
 
+    # CRITICAL FIX
+    def compute_linearized_controller(self, scenarios):
+        return
+
     def _f(self, x, params=None):
         return f(x)
 
