@@ -54,6 +54,24 @@ def g(x):
 
     return G
 
+
+def u_nominal(self, x):
+    """
+    Simple PD controller stabilizing around (0,0)
+    """
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+
+    theta = x[:, 0]
+    theta_dot = x[:, 1]
+
+    u = -5.0 * theta - 2.0 * theta_dot
+
+    # clip to limits
+    u = torch.clamp(u, -3.0, 3.0)
+
+    return u.unsqueeze(1)   # shape [B,1]
+
 # ===== ANALYTICAL CBF =====
 a = 0.14
 b = (a * (3 - 20 * torch.sin(torch.tensor(a))) / 2)**0.5
