@@ -45,16 +45,29 @@ import torch
 
 
 def state_limits():
-        """
-        Return a tuple (upper, lower) describing the state bounds for the system.
-        
-        returns:
-            (upper, lower)
-                where upper: torch float32 tensor with shape [13]
-                      lower: torch float32 tensor with shape [13]
-        """
-        # YOUR CODE HERE
-        pass
+    """
+    Return a tuple (upper, lower) describing the state bounds for the system.
+    
+    returns:
+        (upper, lower)
+            where upper: torch float32 tensor with shape [13]
+                  lower: torch float32 tensor with shape [13]
+    """
+    upper = torch.tensor([
+         3,  3,  3,      # px, py, pz
+         1,  1,  1,  1,  # qw, qx, qy, qz
+         5,  5,  5,      # vx, vy, vz
+         5,  5,  5       # wx, wy, wz
+    ], dtype=torch.float32)
+
+    lower = torch.tensor([
+        -3, -3, -3,
+        -1, -1, -1, -1,
+        -5, -5, -5,
+        -5, -5, -5
+    ], dtype=torch.float32)
+
+    return upper, lower
 
 
 def control_limits():
@@ -66,8 +79,9 @@ def control_limits():
             where upper: torch float32 tensor with shape [4]
                   lower: torch float32 tensor with shape [4]
     """
-    # YOUR CODE HERE
-    pass
+    upper = torch.tensor([20, 8, 8, 4], dtype=torch.float32)
+    lower = torch.tensor([-20, -8, -8, -4], dtype=torch.float32)
+    return upper, lower
 
 
 """Note: the following functions operate on batched inputs.""" 
@@ -83,8 +97,11 @@ def safe_mask(x):
     returns:
         is_safe: torch bool tensor with shape [batch_size]
     """
-    # YOUR CODE HERE
-    pass
+    px = x[:, 0]
+    py = x[:, 1]
+
+    r = torch.sqrt(px**2 + py**2)
+    return r > 2.8
 
 
 def failure_mask(x):
@@ -97,8 +114,11 @@ def failure_mask(x):
     returns:
         is_failure: torch bool tensor with shape [batch_size]
     """
-    # YOUR CODE HERE
-    pass
+    px = x[:, 0]
+    py = x[:, 1]
+
+    r = torch.sqrt(px**2 + py**2)
+    return r < 0.5
 
 
 def f(x):
@@ -139,5 +159,32 @@ def g(x):
     returns:
         g: torch float32 tensor with shape [batch_size, 13, 4]
     """
-    # YOUR CODE HERE
-    pass
+    batch_size = x.shape[0]
+
+    # indices
+    QW, QX, QY, QZ = 3, 4, 5, 6
+    VX, VY, VZ = 7, 8, 9
+    WX, WY, WZ = 10, 11, 12
+
+    qw = x[:, QW]
+    qx = x[:, QX]
+    qy = x[:, QY]
+    qz = x[:, QZ]
+
+    g = torch.zeros((batch_size, 13, 4), dtype=torch.float32)
+
+    # ---- F (thrust) ----
+    g[:, VX, 0] = 2 * (qw * qy + qx * qz)
+    g[:, VY, 0] = 2 * (qy * qz - qw * qx)
+    g[:, VZ, 0] = 2 * (0.5 - qx**2 - qy**2)
+
+    # ---- alpha_x ----
+    g[:, WX, 1] = 1.0
+
+    # ---- alpha_y ----
+    g[:, WY, 2] = 1.0
+
+    # ---- alpha_z ----
+    g[:, WZ, 3] = 1.0
+
+    return g
