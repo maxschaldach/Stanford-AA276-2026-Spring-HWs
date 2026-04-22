@@ -1,54 +1,170 @@
 import torch
+import numpy as np
 import matplotlib.pyplot as plt
 from neural_clbf.controllers import NeuralCBFController
-
 import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from bonus_part3 import plot_h, plot_and_eval_xts
-from bonus_part1 import state_limits
+from bonus_part1 import state_limits, safe_mask
+from bonus_part3 import plot_and_eval_xts
+from bonus_part2 import u_qp
 
-state_max, state_min = state_limits()
-
+# =========================
+# LOAD MODEL
+# =========================
 ckptpath = os.path.join(os.path.dirname(__file__), 'bonus_cbf.ckpt')
 neural_controller = NeuralCBFController.load_from_checkpoint(ckptpath)
 
-fig, ax = plt.subplots()
-ax.set_title(r'$h(\theta, \dot{\theta})$')
-ax.set_xlabel(r'$\theta$')
-ax.set_ylabel(r'$\dot{\theta}$')
+h_new = lambda x: -neural_controller.V_with_jacobian(x)[0]
+dhdx_new = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
 
-# grid for visualization
-theta = torch.linspace(-0.4, 0.4, 100)
-theta_dot = torch.linspace(-2, 2, 100)
+# =========================
+# OLD CBF (analytical)
+# =========================
+a = 0.14
+b = np.sqrt(a * (3 - 20*np.sin(a)) / 2)
 
-h_fn = lambda x: -neural_controller.V_with_jacobian(x)[0]
-dhdx_fn = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
+def h_old(x):
+    theta = x[:, 0]
+    theta_dot = x[:, 1]
+    return 1 - (theta**2)/(a**2) - (theta_dot**2)/(b**2)
 
-# sample initial states
-x0 = torch.rand(100, 2) * (state_max - state_min) + state_min
+# =========================
+# GRID
+# =========================
+theta = torch.linspace(-0.4, 0.4, 200)
+theta_dot = torch.linspace(-2, 2, 200)
 
-# nominal control (zero is fine)
-def u_ref_fn(x):
-    return torch.zeros((len(x), 1))
+TH, TD = torch.meshgrid(theta, theta_dot, indexing='ij')
 
-gamma = 1
-lmbda = 1e9
-nt = 50
-dt = 0.01
+X = torch.stack([TH.reshape(-1), TD.reshape(-1)], dim=1)
 
-print('running plot_h...')
-plot_h(fig, ax, theta, theta_dot, None, h_fn)
+h_old_vals = h_old(X).reshape(TH.shape)
+h_new_vals = h_new(X).reshape(TH.shape).detach()
 
-print('running plot_and_eval_xts...')
-false_safety_rate = plot_and_eval_xts(
-    fig, ax, x0, u_ref_fn, h_fn, dhdx_fn, gamma, lmbda, nt, dt
-)
+# =========================
+# PLOT 1: CBF COMPARISON
+# =========================
+fig1, ax1 = plt.subplots()
 
-_plot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bonus_plot.png')
-plt.savefig(_plot_path)
-plt.close()
+ax1.set_title("Old vs Learned CBF")
+ax1.set_xlabel(r"$\theta$")
+ax1.set_ylabel(r"$\dot{\theta}$")
 
-print(f'plot saved to {_plot_path}')
-print(f'false safety rate: {false_safety_rate}')
+ax1.contour(TH, TD, h_old_vals, levels=[0], colors='blue')
+ax1.contour(TH, TD, h_new_vals, levels=[0], colors='red')
+
+# failure set
+ax1.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.1)
+ax1.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.1)
+
+ax1.legend(["Old CBF", "Learned CBF"])
+
+# volume estimate
+old_area = (h_old_vals >= 0).float().mean()
+new_area = (h_new_vals >= 0).float().mean()
+improvement = (new_area - old_area) / old_area * 100
+
+print(f"Volume improvement (%): {improvement.item():.2f}")
+
+fig1.savefig("cbf_comparison.png")
+plt.close(fig1)
+
+# =========================
+# INITIAL CONDITIONS (SAFE ONLY)
+# =========================
+state_max, state_min = state_limits()
+
+x0 = torch.rand(1000, 2) * (state_max - state_min) + state_min
+x0 = x0[safe_mask(x0)]  # only safe states
+
+# =========================
+# NOMINAL CONTROL (Problem 3)
+# =========================
+def u_nominal(x, t):
+    if t < 1:
+        return torch.full((len(x), 1), 3.0)
+    elif t < 2:
+        return torch.full((len(x), 1), -3.0)
+    elif t < 3:
+        return torch.full((len(x), 1), 3.0)
+    else:
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
+        u = 2.0 * (-10*torch.sin(theta) - (1.5*theta + 1.5*theta_dot))
+        return torch.clamp(u.unsqueeze(1), -3.0, 3.0)
+
+# wrapper for rollout
+def u_ref_fn(x, t):
+    return u_nominal(x, t)
+
+# =========================
+# SIMULATION (WITH CONTROL TRACKING)
+# =========================
+def simulate(x0):
+    x = x0.clone()
+    traj = [x.clone()]
+    u_hist = []
+    t_hist = []
+
+    dt = 0.01
+    t = 0
+
+    while t < 5:
+        u_ref = u_nominal(x, t)
+        u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=1, lmbda=1e6)
+
+        x = x + dt * (torch.stack([
+            x[:,1],
+            10*torch.sin(x[:,0]) + u.squeeze()/2.0
+        ], dim=1))
+
+        traj.append(x.clone())
+        u_hist.append(u.clone())
+        t_hist.append(t)
+
+        t += dt
+
+    return torch.stack(traj), torch.stack(u_hist), torch.tensor(t_hist)
+
+# run sim for two ICs
+x0s = torch.tensor([[0,0], [0.05,0.05]], dtype=torch.float32)
+
+results = [simulate(x0.unsqueeze(0)) for x0 in x0s]
+
+# =========================
+# PLOT 2: STATE TRAJECTORIES
+# =========================
+fig2, ax2 = plt.subplots()
+
+for i, (traj, _, _) in enumerate(results):
+    traj = traj.squeeze(1)
+    ax2.plot(traj[:,0], traj[:,1], label=f"x0={x0s[i].tolist()}")
+
+ax2.fill_betweenx([-2,2], 0.3, 0.4, color='red', alpha=0.1)
+ax2.fill_betweenx([-2,2], -0.4, -0.3, color='red', alpha=0.1)
+
+ax2.set_xlabel("theta")
+ax2.set_ylabel("theta_dot")
+ax2.set_title("State Trajectories (CBF-QP)")
+ax2.legend()
+ax2.grid()
+
+fig2.savefig("trajectories.png")
+plt.close(fig2)
+
+# =========================
+# PLOT 3: CONTROL TRAJECTORIES
+# =========================
+fig3, ax3 = plt.subplots()
+
+for i, (_, u_hist, t_hist) in enumerate(results):
+    ax3.plot(t_hist.numpy(), u_hist.squeeze().numpy(), label=f"x0={x0s[i].tolist()}")
+
+ax3.set_xlabel("time")
+ax3.set_ylabel("u(t)")
+ax3.set_title("Control Inputs (CBF-QP)")
+ax3.legend()
+ax3.grid()
+
+fig3.savefig("controls.png")
+plt.close(fig3)
