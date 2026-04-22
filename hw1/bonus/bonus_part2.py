@@ -16,11 +16,13 @@ def euler_step(x, u, dt):
     fx = f(x)                      # [B, 2]
     gx = g(x)                      # [B, 2, 1]
 
-    gu = torch.bmm(gx, u.unsqueeze(-1)).squeeze(-1)  # [B, 2]
+    gu = torch.bmm(gx, u.unsqueeze(-1))  # [B, 2, 1]
+
+    fx = fx.squeeze(-1)            # [B, 2]
+    gu = gu.squeeze(-1)            # [B, 2]
 
     xn = x + dt * (fx + gu)
     return xn
-
     
 def roll_out(x0, u_fn, nt, dt):
     """
