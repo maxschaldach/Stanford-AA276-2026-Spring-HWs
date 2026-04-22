@@ -96,7 +96,7 @@ trainer = pl.Trainer.from_argparse_args(
     args,
     logger=tb_logger,
     reload_dataloaders_every_epoch=True,
-    max_epochs=80,
+    max_epochs=50,
 )
 
 # =========================
