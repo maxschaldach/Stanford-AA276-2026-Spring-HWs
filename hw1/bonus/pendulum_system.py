@@ -1,82 +1,67 @@
 import torch
+from neural_clbf.systems import ControlAffineSystem
+from bonus_part1 import f, g, state_limits, control_limits, safe_mask, failure_mask
 
-# parameters
 m = 2.0
 l = 1.0
 g_const = 10.0
 
-# ===== STATE LIMITS =====
-def state_limits():
-    upper = torch.tensor([0.4, 2.0])
-    lower = torch.tensor([-0.4, -2.0])
-    return upper, lower
 
-# ===== CONTROL LIMITS =====
-def control_limits():
-    upper = torch.tensor([3.0])
-    lower = torch.tensor([-3.0])
-    return upper, lower
+class PendulumSystem(ControlAffineSystem):
+    def __init__(self, nominal_params):
+        super().__init__(nominal_params)
 
-# ===== SAFE SET =====
-def safe_mask(x):
-    theta = x[:, 0]
-    return torch.abs(theta) <= 0.3
+    @property
+    def n_dims(self):
+        return 2
 
-# ===== FAILURE SET =====
-def failure_mask(x):
-    theta = x[:, 0]
-    return torch.abs(theta) > 0.3
+    @property
+    def n_controls(self):
+        return 1
 
-# ===== DYNAMICS =====
-def f(x):
-    if x.ndim == 1:
-        x = x.unsqueeze(0)
+    @property
+    def angle_dims(self):
+        return []   # no periodic handling
 
-    theta = x[:, 0]
-    theta_dot = x[:, 1]
+    def validate_params(self, params):
+        return True
 
-    out = torch.zeros((x.shape[0], 2, 1), device=x.device)
+    # REQUIRED (even if unused)
+    def compute_linearized_controller(self, scenarios):
+        return
 
-    out[:, 0, 0] = theta_dot
-    out[:, 1, 0] = (g_const / l) * torch.sin(theta)
+    # dynamics
+    def _f(self, x, params=None):
+        return f(x)
 
-    return out
+    def _g(self, x, params=None):
+        return g(x)
 
-def g(x):
-    # ensure batch dimension
-    if x.ndim == 1:
-        x = x.unsqueeze(0)
+    # limits
+    @property
+    def state_limits(self):
+        return state_limits()
 
-    B = x.shape[0]
-    G = torch.zeros((B, 2, 1), device=x.device)
+    @property
+    def control_limits(self):
+        return control_limits()
 
-    G[:, 1, 0] = 1 / (m * l**2)
+    # sets
+    def safe_mask(self, x):
+        return safe_mask(x)
 
-    return G
+    def unsafe_mask(self, x):
+        return failure_mask(x)
 
+    # nominal controller (used during training)
+    def u_nominal(self, x):
+        theta = x[:, 0]
+        theta_dot = x[:, 1]
 
-def u_nominal(self, x):
-    """
-    Simple PD controller stabilizing around (0,0)
-    """
-    if x.ndim == 1:
-        x = x.unsqueeze(0)
+        u = m * l**2 * (
+            -(g_const / l) * torch.sin(theta)
+            - 1.5 * theta
+            - 1.5 * theta_dot
+        )
 
-    theta = x[:, 0]
-    theta_dot = x[:, 1]
-
-    u = -5.0 * theta - 2.0 * theta_dot
-
-    # clip to limits
-    u = torch.clamp(u, -3.0, 3.0)
-
-    return u.unsqueeze(1)   # shape [B,1]
-
-# ===== ANALYTICAL CBF =====
-a = 0.14
-b = (a * (3 - 20 * torch.sin(torch.tensor(a))) / 2)**0.5
-
-def h_old(x):
-    theta = x[:, 0]
-    theta_dot = x[:, 1]
-    return 1 - (theta**2)/(a**2) - (theta_dot**2)/(b**2)
+        return torch.clamp(u, -3.0, 3.0).unsqueeze(1)
