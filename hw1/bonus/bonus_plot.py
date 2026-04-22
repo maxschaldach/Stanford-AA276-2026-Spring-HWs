@@ -34,7 +34,7 @@ def h_old(x):
 theta = torch.linspace(-0.4, 0.4, 200)
 theta_dot = torch.linspace(-2, 2, 200)
 
-TH, TD = torch.meshgrid(theta, theta_dot, indexing='ij')
+TH, TD = torch.meshgrid(theta, theta_dot)
 
 X = torch.stack([TH.reshape(-1), TD.reshape(-1)], dim=1)
 
