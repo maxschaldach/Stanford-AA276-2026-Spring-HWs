@@ -71,8 +71,8 @@ def u_qp(x, h, dhdx, u_ref, gamma, lmbda):
         xi = x[i].unsqueeze(0)
 
         # dynamics
-        fi = f(xi)[0].detach().cpu().numpy()        # [2]
-        gi = g(xi)[0].detach().cpu().numpy()        # [2,1]
+        fi = f(xi)[0].squeeze(-1).detach().cpu().numpy()  # [2]
+        gi = g(xi)[0].detach().cpu().numpy()              # [2,1]
 
         grad_h = dhdx[i].detach().cpu().numpy()     # [2]
         hi = h[i].item()

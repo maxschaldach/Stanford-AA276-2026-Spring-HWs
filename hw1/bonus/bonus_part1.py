@@ -58,7 +58,7 @@ def safe_mask(x):
     theta_dot = x[:, 1]
 
     h = 1 - (theta**2)/(a**2) - (theta_dot**2)/(b**2)
-    return h > 0.02
+    return h >= 0
 
 
 def failure_mask(x):

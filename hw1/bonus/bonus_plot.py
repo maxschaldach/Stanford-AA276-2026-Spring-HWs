@@ -111,7 +111,7 @@ def simulate(x0):
 
     while t < 5:
         u_ref = u_nominal(x, t)
-        u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=1, lmbda=1e6)
+        u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=0.3, lmbda=1e6)
 
         x = x + dt * (torch.stack([
             x[:,1],
