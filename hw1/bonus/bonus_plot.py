@@ -14,8 +14,14 @@ from bonus_part2 import u_qp
 ckptpath = os.path.join(os.path.dirname(__file__), 'bonus_cbf.ckpt')
 neural_controller = NeuralCBFController.load_from_checkpoint(ckptpath)
 
-h_new = lambda x: -neural_controller.V_with_jacobian(x)[0]
-dhdx_new = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
+def normalize(x):
+    x_norm = x.clone()
+    x_norm[:,0] = x[:,0] / 0.4
+    x_norm[:,1] = x[:,1] / 2.0
+    return x_norm
+
+h_new = lambda x: -neural_controller.V_with_jacobian(normalize(x))[0]
+dhdx_new = lambda x: -neural_controller.V_with_jacobian(normalize(x))[1].squeeze(1)
 
 # =========================
 # OLD CBF (analytical)

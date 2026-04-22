@@ -57,6 +57,7 @@ data_module = EpisodicDataModule(
     max_points=300000000,
     val_split=0.01,
     batch_size=1024,
+    quotas={"safe": 0.2, "unsafe": 0.2},
 )
 
 experiment_suite = ExperimentSuite([])
