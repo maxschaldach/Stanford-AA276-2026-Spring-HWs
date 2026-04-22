@@ -68,7 +68,6 @@ def failure_mask(x):
     theta = x[:, 0]
     return torch.abs(theta) > 0.3
 
-
 def f(x):
     """
     Control-independent dynamics f(x)
@@ -76,12 +75,16 @@ def f(x):
     returns:
         f: [batch_size, 2]
     """
+
     theta = x[:, 0]
     theta_dot = x[:, 1]
 
-    f = torch.zeros((x.shape[0], 2, 1), dtype=x.dtype, device=x.device)
-    f[:, 0] = theta_dot
-    f[:, 1] = (g_const / l) * torch.sin(theta)
+    B = x.shape[0]
+
+    f = torch.zeros((B, 2, 1), device=x.device)
+
+    f[:, 0, 0] = theta_dot
+    f[:, 1, 0] = (g_const / l) * torch.sin(theta)
 
     return f
 
