@@ -88,7 +88,6 @@ def f(x):
 
     return f
 
-
 def g(x):
     """
     Control-dependent dynamics g(x)
@@ -98,7 +97,7 @@ def g(x):
     """
     batch_size = x.shape[0]
 
-    g = torch.zeros((batch_size, 2, 1), dtype=torch.float32)
+    g = torch.zeros((batch_size, 2, 1), device=x.device)
 
     g[:, 1, 0] = 1.0 / (m * l**2)
 
