@@ -85,7 +85,7 @@ cbf_controller = NeuralCBFController(
 # TRAINER
 # =========================
 
-_OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'outputs')
+_OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
 
 tb_logger = pl_loggers.TensorBoardLogger(
     _OUTPUTS_DIR,
