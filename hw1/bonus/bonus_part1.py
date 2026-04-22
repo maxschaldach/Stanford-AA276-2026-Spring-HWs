@@ -79,7 +79,7 @@ def f(x):
     theta = x[:, 0]
     theta_dot = x[:, 1]
 
-    f = torch.zeros_like(x)
+    f = torch.zeros((x.shape[0], 2, 1), dtype=x.dtype, device=x.device)
     f[:, 0] = theta_dot
     f[:, 1] = (g_const / l) * torch.sin(theta)
 
