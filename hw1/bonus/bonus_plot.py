@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from neural_clbf.controllers import NeuralCBFController
 import os
 
-from bonus_part1 import state_limits, safe_mask
+from bonus_part1 import state_limits, safe_mask, f, g
 from bonus_part3 import plot_and_eval_xts
 from bonus_part2 import u_qp
 
@@ -21,7 +21,17 @@ def normalize(x):
     return x_norm
 
 h_new = lambda x: -neural_controller.V_with_jacobian(normalize(x))[0]
-dhdx_new = lambda x: -neural_controller.V_with_jacobian(normalize(x))[1].squeeze(1)
+
+def dhdx_new(x):
+    x_norm = normalize(x)
+    V, grad = neural_controller.V_with_jacobian(x_norm)
+    grad = grad.squeeze(1)
+
+    # chain rule correction
+    grad[:,0] = grad[:,0] / 0.4
+    grad[:,1] = grad[:,1] / 2.0
+
+    return -grad
 
 # =========================
 # OLD CBF (analytical)
@@ -119,10 +129,12 @@ def simulate(x0):
         u_ref = u_nominal(x, t)
         u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=0.3, lmbda=1e6)
 
-        x = x + dt * (torch.stack([
-            x[:,1],
-            10*torch.sin(x[:,0]) + u.squeeze()/2.0
-        ], dim=1))
+        fx = f(x).squeeze(-1)   # [B, 2]
+        gx = g(x)               # [B, 2, 1]
+
+        gu = torch.bmm(gx, u.unsqueeze(-1)).squeeze(-1)  # [B, 2]
+
+        x = x + dt * (fx + gu)
 
         traj.append(x.clone())
         u_hist.append(u.clone())
