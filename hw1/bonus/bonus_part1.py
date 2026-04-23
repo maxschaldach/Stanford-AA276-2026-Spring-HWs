@@ -18,12 +18,12 @@ def state_limits():
     """
     upper = torch.tensor([
         0.4,   # theta
-        2.0    # theta_dot
+        1.0    # theta_dot
     ], dtype=torch.float32)
 
     lower = torch.tensor([
         -0.4,
-        -2.0
+        -1.0
     ], dtype=torch.float32)
 
     return upper, lower
@@ -58,7 +58,7 @@ def safe_mask(x):
     theta_dot = x[:, 1]
 
     h = 1 - (theta**2)/(a**2) - (theta_dot**2)/(b**2)
-    return h >= 0
+    return h > 0.02
 
 
 def failure_mask(x):

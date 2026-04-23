@@ -57,7 +57,11 @@ data_module = EpisodicDataModule(
     max_points=300000000,
     val_split=0.01,
     batch_size=1024,
-    quotas={"safe": 0.2, "unsafe": 0.2},
+    quotas={
+        "safe": 0.5,
+        "unsafe": 0.25,
+        "boundary": 0.25
+    }
 )
 
 experiment_suite = ExperimentSuite([])
@@ -72,7 +76,7 @@ cbf_controller = NeuralCBFController(
     experiment_suite=experiment_suite,
     cbf_hidden_layers=2,        # smaller is sufficient for pendulum
     cbf_hidden_size=128,
-    cbf_lambda=0.3,
+    cbf_lambda=2.0,
     cbf_relaxation_penalty=1e3,
     controller_period=controller_period,
     primal_learning_rate=1e-4,

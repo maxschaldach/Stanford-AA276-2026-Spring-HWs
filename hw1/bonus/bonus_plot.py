@@ -14,24 +14,8 @@ from bonus_part2 import u_qp
 ckptpath = os.path.join(os.path.dirname(__file__), 'bonus_cbf.ckpt')
 neural_controller = NeuralCBFController.load_from_checkpoint(ckptpath)
 
-def normalize(x):
-    x_norm = x.clone()
-    x_norm[:,0] = x[:,0] / 0.4
-    x_norm[:,1] = x[:,1] / 2.0
-    return x_norm
-
-h_new = lambda x: -neural_controller.V_with_jacobian(normalize(x))[0]
-
-def dhdx_new(x):
-    x_norm = normalize(x)
-    V, grad = neural_controller.V_with_jacobian(x_norm)
-    grad = grad.squeeze(1)
-
-    # chain rule correction
-    grad[:,0] = grad[:,0] / 0.4
-    grad[:,1] = grad[:,1] / 2.0
-
-    return -grad
+h_new = lambda x: -neural_controller.V_with_jacobian(x)[0]
+dhdx_new = lambda x: -neural_controller.V_with_jacobian(x)[1].squeeze(1)
 
 # =========================
 # OLD CBF (analytical)
@@ -127,7 +111,7 @@ def simulate(x0):
 
     while t < 5:
         u_ref = u_nominal(x, t)
-        u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=0.3, lmbda=1e6)
+        u = u_qp(x, h_new(x), dhdx_new(x), u_ref, gamma=0.0, lmbda=1e6)
 
         fx = f(x).squeeze(-1)   # [B, 2]
         gx = g(x)               # [B, 2, 1]
