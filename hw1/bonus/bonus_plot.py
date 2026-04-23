@@ -57,8 +57,6 @@ ax1.contour(TH, TD, h_new_vals, levels=[0], colors='red')
 ax1.fill_betweenx([-2, 2], 0.3, 0.4, color='red', alpha=0.1)
 ax1.fill_betweenx([-2, 2], -0.4, -0.3, color='red', alpha=0.1)
 
-ax1.legend(["Old CBF", "Learned CBF"])
-
 # volume estimate
 old_area = (h_old_vals >= 0).float().mean()
 new_area = (h_new_vals >= 0).float().mean()
