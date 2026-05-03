@@ -132,11 +132,4 @@ def hji_vi_loss(x, l, V, dVdt, dVdx):
         h2:   torch tensor with shape [batch_size]
     """
     H = hamiltonian(x, dVdx)
-
-    term1 = dVdt + H
-    term2 = V - l
-
-    inner = torch.minimum(term1, term2)
-    h2 = torch.abs(torch.maximum(inner, dVdt))
-
-    return h2
+    return torch.abs(torch.minimum(dVdt + H, l - V))
