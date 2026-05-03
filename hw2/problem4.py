@@ -64,8 +64,18 @@ def optimal_control(x, dVdx):
     returns:
         u_opt: torch tensor with shape [batch_size, 4]
     """
-    # YOUR CODE HERE
-    pass
+    gx = g(x)                              # [B, 13, 4]
+    gTdV = torch.einsum('bij,bi->bj', gx, dVdx)  # [B, 4]
+
+    u_opt = torch.zeros_like(gTdV)
+
+    # Control bounds
+    u_min = torch.tensor([-20.0, -8.0, -8.0, -4.0], device=x.device)
+    u_max = torch.tensor([ 20.0,  8.0,  8.0,  4.0], device=x.device)
+
+    u_opt = torch.where(gTdV >= 0, u_max, u_min)
+
+    return u_opt
 
 def hamiltonian(x, dVdx):
     """
@@ -80,8 +90,23 @@ def hamiltonian(x, dVdx):
     returns:
         ham:  torch tensor with shape [batch_size]
     """
-    # YOUR CODE HERE
-    pass
+    fx = f(x)                              # [B, 13]
+    gx = g(x)                              # [B, 13, 4]
+
+    # f term
+    f_term = torch.sum(dVdx * fx, dim=1)    # [B]
+
+    # optimal control term
+    gTdV = torch.einsum('bij,bi->bj', gx, dVdx)  # [B, 4]
+
+    u_min = torch.tensor([-20.0, -8.0, -8.0, -4.0], device=x.device)
+    u_max = torch.tensor([ 20.0,  8.0,  8.0,  4.0], device=x.device)
+
+    u_opt = torch.where(gTdV >= 0, u_max, u_min)
+
+    control_term = torch.sum(gTdV * u_opt, dim=1)
+
+    return f_term + control_term
 
 def hji_vi_loss(x, l, V, dVdt, dVdx):
     """
@@ -106,5 +131,12 @@ def hji_vi_loss(x, l, V, dVdt, dVdx):
     returns:
         h2:   torch tensor with shape [batch_size]
     """
-    # YOUR CODE HERE
-    pass
+    H = hamiltonian(x, dVdx)
+
+    term1 = dVdt + H
+    term2 = V - l
+
+    inner = torch.minimum(term1, term2)
+    h2 = torch.abs(torch.maximum(inner, dVdt))
+
+    return h2
