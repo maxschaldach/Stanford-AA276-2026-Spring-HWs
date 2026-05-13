@@ -46,7 +46,7 @@ class InvertedPendulum(hj.ControlAndDisturbanceAffineDynamics):
             jnp.array([0.0]),
         )
         super().__init__(
-            control_mode="min",
+            control_mode="max",
             disturbance_mode="max",
             control_space=control_space,
             disturbance_space=disturbance_space,
@@ -88,7 +88,7 @@ def build_grid():
 def initial_values_on_grid(grid):
     # Failure set: |theta| >= 0.3
     # Implicit surface negative inside failure set, positive in the safe region.
-    return jnp.array(jnp.abs(grid.states[..., 0]) - SAFE_ANGLE)
+    return jnp.array(SAFE_ANGLE - jnp.abs(grid.states[..., 0]))
 
 
 def solve_brt(grid, dynamics):

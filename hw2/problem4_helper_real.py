@@ -1,7 +1,3 @@
-import torch
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 """
 Helper functions to query the learned values and gradients of vf.ckpt, cbf.ckpt.
 NOTE: To use NeuralCBF defined below, you need to have your solution files from Homework 1
@@ -11,6 +7,8 @@ Make sure your hw1 venv is activated to use NeuralCBF.
 NOTE: Due to package version incompatibilities between the two neural libraries,
 you will probably need to use separate scripts and venvs.
 """
+
+import torch
 
 """
 Helper class for querying vf.ckpt.
@@ -29,24 +27,14 @@ class NeuralVF:
         from libraries.DeepReach_MPC.dynamics.dynamics import Quadrotor
 
         dynamics = Quadrotor(collisionR=0.5, collective_thrust_max=20, set_mode='avoid')
-        model = modules.SingleBVPNet(
-            in_features=dynamics.input_dim,
-            out_features=1,
-            type='sine',
-            mode='mlp',
-            final_layer_factor=1.,
-            hidden_features=512,
-            num_hidden_layers=3,
-            periodic_transform_fn=dynamics.periodic_transform_fn
-        )
-
-        model = model.to(device)
-        checkpoint = torch.load(ckpt_path, map_location=device)
-        model.load_state_dict(checkpoint['model'])
+        model = modules.SingleBVPNet(in_features=dynamics.input_dim, out_features=1, type='sine', mode='mlp',
+                                    final_layer_factor=1., hidden_features=512, num_hidden_layers=3, 
+                                    periodic_transform_fn=dynamics.periodic_transform_fn)
+        model.cuda()
+        model.load_state_dict(torch.load(ckpt_path)['model'])
 
         self.dynamics = dynamics
         self.model = model
-        self.device = device
 
     def values(self, x):
         """
@@ -55,14 +43,11 @@ class NeuralVF:
         returns:
             values: torch tensor with shape [batch_size]
         """
-        coords = torch.cat((torch.ones((len(x), 1), device=x.device), x), dim=1)
+        coords = torch.concatenate((torch.ones((len(x), 1)), x), dim=1)
         model_input = self.dynamics.coord_to_input(coords)
         with torch.no_grad():
-            model_results = self.model({'coords': model_input.to(self.device)})
-        values = self.dynamics.io_to_value(
-            model_results['model_in'].detach(),
-            model_results['model_out'].detach().squeeze(dim=-1)
-        )
+            model_results = self.model({'coords': model_input.cuda()})
+        values = self.dynamics.io_to_value(model_results['model_in'].detach(), model_results['model_out'].detach().squeeze(dim=-1))
         return values.cpu()
     
     def gradients(self, x):
@@ -72,15 +57,12 @@ class NeuralVF:
         returns:
             gradients: torch tensor with shape [batch_size, 13]
         """
-        coords = torch.cat((torch.ones((len(x), 1), device=x.device), x), dim=1)
+        coords = torch.concatenate((torch.ones((len(x), 1)), x), dim=1)
         model_input = self.dynamics.coord_to_input(coords)
-        model_results = self.model({'coords': model_input.to(self.device)})
-        gradients = self.dynamics.io_to_dv(
-            model_results['model_in'],
-            model_results['model_out'].squeeze(dim=-1)
-        )[:, 1:]
+        model_results = self.model({'coords': model_input.cuda()})
+        gradients = self.dynamics.io_to_dv(model_results['model_in'], model_results['model_out'].squeeze(dim=-1))[:, 1:]
         return gradients.cpu()
-
+    
 """
 Helper class for querying cbf.ckpt.
 neuralcbf = NeuralCBF()
@@ -94,12 +76,8 @@ class NeuralCBF:
         except Exception as e:
             print(str(e))
             print('MAKE SURE YOU HAVE THE VENV FROM HW1 ACTIVATED')
-
         try:
-            self.model = NeuralCBFController.load_from_checkpoint(
-                ckpt_path,
-                map_location=device
-            )
+            self.model = NeuralCBFController.load_from_checkpoint(ckpt_path)
         except Exception as e:
             print(str(e))
             print('MAKE SURE YOUR FILES FROM HOMEWORK 1 ARE IN THE SAME DIRECTORY AS THIS FILE')
